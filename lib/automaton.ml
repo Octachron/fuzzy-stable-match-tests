@@ -9,27 +9,65 @@ type state = diagonal list
 let read diag = diag.read_minus_error + diag.error
 
 
+let semi ppf () = Format.fprintf ppf ";@ "
+
+let superscript_digit ppf n =
+  let s = match n with
+    | 1 -> "¹"
+    | 2 -> "²"
+    | 3 -> "³"
+    | 0 -> "⁰"
+    | 4 -> "⁴"
+    | 5 -> "⁵"
+    | 6 -> "⁶"
+    | 7 -> "⁷"
+    | 8 -> "⁸"
+    | 9 -> "⁹"
+    | _ -> assert false
+  in
+  Format.pp_print_string ppf s
+
+let rec superscript ppf n =
+  if n < 10 then
+    superscript_digit ppf n
+  else begin
+    superscript ppf (n/10);
+    superscript_digit ppf (n mod 10)
+  end
+
+let pp_diag ppf { read_minus_error; error } =
+  Format.fprintf ppf "%d%a" (read_minus_error+error) superscript error
+
+let pp_state ppf x =
+  Format.fprintf ppf "[%a]"
+    (Format.pp_print_list ~pp_sep:semi pp_diag) x
+
+
 (* i^d subsumes the cone rooted in this position   *)
 let subsumed diag1 diag2 =
-  let read1 = read diag1 and read2 = read diag2 in
-  if read1 >= read2 then false
-  else abs (diag1.error - diag2.error) <= read2 - read1
+  (diag1.read_minus_error <= diag2.read_minus_error) &&
+  (diag1.read_minus_error + 2 * diag1.error >= diag2.read_minus_error + 2 * diag2.error)
 
 let rec add prev_diags diag = function
-  | [] -> List.rev prev_diags
+  | [] -> List.rev (diag::prev_diags)
   | a :: q as l  ->
       if a.read_minus_error = diag.read_minus_error then
           List.rev_append prev_diags
-            (if diag.error < a.error then diag ::q else l)
+            (if diag.error < a.error then diag::q else l)
       else if a.read_minus_error < diag.read_minus_error then
         begin if subsumed a diag then
             add prev_diags diag q
           else add (a::prev_diags) diag q
         end
+      else if List.exists (subsumed diag) l then
+        List.rev_append prev_diags l
       else
         List.rev_append prev_diags (diag::l)
 
-let add x l = add [] x l
+let add x l =
+  let y = add [] x l in
+  Format.eprintf "@[%a + %a = %a@]@." pp_state l pp_diag x pp_state y;
+  y
 
 let map f l = List.fold_left (fun m p ->
     List.fold_left (fun m x -> add x m) m (f p)
@@ -74,7 +112,7 @@ let transition_nchar ~emax profile nchar m =
   let rmax = Array.length profile in
   let f d =
     let r = read d in
-    if profile.(r) = nchar then begin
+    if r < rmax && profile.(r) = nchar then begin
       if r >= rmax then []
       else [ { read_minus_error = d.read_minus_error + 1; error = d.error} ]
     end else
@@ -137,6 +175,10 @@ let transition_nchar ~emax profile nchar m =
       else
         transition_nchar ~emax:automaton.max_error automaton.profile nchar full_state
     in
+    Format.eprintf "transition: @[%a -(%d)-> %a@]@."
+      pp_state full_state
+      nchar
+      pp_state new_full_state;
     let new_state =
       match State_map.find_opt new_full_state automaton.rev_map with
       | Some i -> i
@@ -148,8 +190,9 @@ let transition_nchar ~emax profile nchar m =
         Dynarray.add_last automaton.transitions Int_map.empty;
         new_state
     in
-    let transitions = Dynarray.get automaton.transitions new_state in
-    Dynarray.set automaton.transitions new_state (Int_map.add nchar new_state transitions);
+    Format.eprintf "new_state=%d@." new_state;
+    let transitions = Dynarray.get automaton.transitions state in
+    Dynarray.set automaton.transitions state (Int_map.add nchar new_state transitions);
     new_state
 
   type query = {
@@ -199,7 +242,14 @@ let transition_nchar ~emax profile nchar m =
      { char_map; word;  automaton }
 
 
-  let accept emax = fun word s ->
-    let r = ref (Profile_map.empty) in
-    let query = create_query emax r word in
-    transition_suffix query 0 0 (String.length s) s
+let accepted_state q s =
+  match s with
+  | None -> false
+  | Some s -> snd (Dynarray.get q.automaton.states s)
+
+let accept emax word =
+  let r = ref (Profile_map.empty) in
+  let query = create_query emax r word in
+  fun s ->
+  let r = transition_suffix query 0 0 (String.length s) s in
+  query.automaton, r, accepted_state query r
