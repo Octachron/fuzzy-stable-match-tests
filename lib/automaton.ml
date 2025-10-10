@@ -75,7 +75,7 @@ let map f l = List.fold_left (fun m p ->
 
 let rec profile last map uword p pos s =
   if pos >= String.length s then
-    (map, Dynarray.to_array p, Dynarray.to_array uword)
+    (last-1, map, Dynarray.to_array p, Dynarray.to_array uword)
   else
     let decode = String.get_utf_8_uchar s pos in
     let char = Uchar.utf_decode_uchar decode in
@@ -139,26 +139,31 @@ let transition_nchar ~emax profile nchar m =
         read_minus_error >= accept_diag
       ) state
 
+type state_summary =
+  { state: diagonal list; fully_computed:bool; accepted:bool }
+
   type automaton = {
     profile: int array;
+    n_chars: int;
     max_error:int;
     transitions: int Int_map.t Dynarray.t;
-    states: (diagonal list * bool) Dynarray.t;
+    states: state_summary Dynarray.t;
     mutable rev_map: int State_map.t
   }
 
 
   let zero_diag = { read_minus_error=0; error = 0;}
 
-  let create max_error profile =
+  let create max_error n_chars profile =
     let states = Dynarray.create () in
-    let zero_state = [zero_diag] in
-    Dynarray.add_last states (zero_state, Array.length profile <= max_error) ;
-    let rev_map = State_map.of_list [ [], -1 ; zero_state,  0 ] in
+    let zero_state = { state = [zero_diag]; fully_computed = false; accepted = Array.length profile <= max_error } in
+    Dynarray.add_last states zero_state;
+    let rev_map = State_map.of_list [ [], -1 ; zero_state.state,  0 ] in
     let transitions = Dynarray.create () in
     Dynarray.add_last transitions Int_map.empty;
     {
       profile;
+      n_chars;
       max_error;
       states;
       transitions;
@@ -167,7 +172,7 @@ let transition_nchar ~emax profile nchar m =
 
 
   let add_transition automaton state nchar =
-    let full_state, _ = Dynarray.get automaton.states state in
+    let { state = full_state; _ } = Dynarray.get automaton.states state in
     let emax = automaton.max_error in
     let new_full_state =
       if nchar < 0 then
@@ -185,7 +190,10 @@ let transition_nchar ~emax profile nchar m =
       | None ->
         let new_state = Dynarray.length automaton.states in
         Dynarray.add_last automaton.states
-          (new_full_state, accept ~emax ~rmax:(Array.length automaton.profile) new_full_state);
+          { state = new_full_state;
+            fully_computed = false;
+            accepted = accept ~emax ~rmax:(Array.length automaton.profile) new_full_state
+          };
         automaton.rev_map <- State_map.add new_full_state new_state automaton.rev_map;
         Dynarray.add_last automaton.transitions Int_map.empty;
         new_state
@@ -195,11 +203,27 @@ let transition_nchar ~emax profile nchar m =
     Dynarray.set automaton.transitions state (Int_map.add nchar new_state transitions);
     new_state
 
+  let add_all_transitions_from automaton state =
+    for t = -1 to automaton.n_chars do
+      ignore (add_transition automaton state t)
+    done
+
+  let rec saturate_transitions automaton state =
+    let last = Dynarray.length automaton.states in
+    for st = state to last - 1 do
+      add_all_transitions_from automaton st
+    done;
+    let new_last = Dynarray.length automaton.states in
+    if new_last > last then saturate_transitions automaton (last + 1)
+
+
   type query = {
     word: Uchar.t array;
     char_map: int Uchar_map.t;
     automaton: automaton;
   }
+
+let (.!()) = Dynarray.get
 
   let transition query state uchar =
     let nchar =
@@ -207,12 +231,17 @@ let transition_nchar ~emax profile nchar m =
       | None -> -1
       | Some x -> x
     in
-    let t = Dynarray.get query.automaton.transitions state in
+    let t = query.automaton.transitions.!(state) in
     let state = match Int_map.find_opt nchar t with
       | Some e -> e
       | None -> add_transition query.automaton state nchar
     in
     if state < 0 then None else Some state
+
+  let all_transitions query state =
+    if not query.automaton.states.!(state).fully_computed then
+      add_all_transitions_from query.automaton state;
+    query.automaton.transitions.!(state)
 
   let rec transition_suffix query state pos len s =
     if pos >= len then Some state else
@@ -230,11 +259,11 @@ let transition_nchar ~emax profile nchar m =
   end)
 
   let create_query emax automaton_register word =
-    let char_map, p, word = profile word in
+    let n_chars, char_map, p, word = profile word in
     let automaton =
       match Profile_map.find_opt p !automaton_register with
       | None ->
-          let automaton = create emax p in
+          let automaton = create emax n_chars p in
           automaton_register := Profile_map.add p automaton !automaton_register;
           automaton
       | Some a -> a
@@ -245,7 +274,7 @@ let transition_nchar ~emax profile nchar m =
 let accepted_state q s =
   match s with
   | None -> false
-  | Some s -> snd (Dynarray.get q.automaton.states s)
+  | Some s -> (Dynarray.get q.automaton.states s).accepted
 
 let accept emax word =
   let r = ref (Profile_map.empty) in
