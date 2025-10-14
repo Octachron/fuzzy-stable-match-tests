@@ -1,4 +1,5 @@
 open Trie
+open Maps
 type column = { char:Uchar.t; score: int Array.t }
 
 type frontier = { col_minus_1:column; col:column }

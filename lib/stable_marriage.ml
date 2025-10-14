@@ -187,7 +187,7 @@
     let name i field = Item.name field, i in
     let left_trie = x |> Array.to_seq |> Seq.mapi name |> Trie.of_seq in
     fun name ->
-      Trie.compute_preference_layers
+      Trie_naive.compute_preference_layers
         ~cutoff:(cutoff name)
         ?max_elements
         left_trie

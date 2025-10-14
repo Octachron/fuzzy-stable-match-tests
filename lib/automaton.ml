@@ -66,7 +66,6 @@ let rec add prev_diags diag = function
 
 let add x l =
   let y = add [] x l in
-  Format.eprintf "@[%a + %a = %a@]@." pp_state l pp_diag x pp_state y;
   y
 
 let map f l = List.fold_left (fun m p ->
@@ -135,14 +134,15 @@ let transition_nchar ~emax profile nchar m =
 
   let accept ~emax ~rmax state =
     let accept_diag = rmax - emax in
-    List.exists (fun { read_minus_error; _} ->
-        read_minus_error >= accept_diag
-      ) state
+    let best = List.fold_left (fun m { read_minus_error; _} -> max m read_minus_error)
+        0 state
+    in
+    best = accept_diag
 
 type state_summary =
   { state: diagonal list; fully_computed:bool; accepted:bool }
 
-  type automaton = {
+  type t = {
     profile: int array;
     n_chars: int;
     max_error:int;
@@ -180,10 +180,6 @@ type state_summary =
       else
         transition_nchar ~emax:automaton.max_error automaton.profile nchar full_state
     in
-    Format.eprintf "transition: @[%a -(%d)-> %a@]@."
-      pp_state full_state
-      nchar
-      pp_state new_full_state;
     let new_state =
       match State_map.find_opt new_full_state automaton.rev_map with
       | Some i -> i
@@ -198,7 +194,6 @@ type state_summary =
         Dynarray.add_last automaton.transitions Int_map.empty;
         new_state
     in
-    Format.eprintf "new_state=%d@." new_state;
     let transitions = Dynarray.get automaton.transitions state in
     Dynarray.set automaton.transitions state (Int_map.add nchar new_state transitions);
     new_state
@@ -220,7 +215,7 @@ type state_summary =
   type query = {
     word: Uchar.t array;
     char_map: int Uchar_map.t;
-    automaton: automaton;
+    automaton: t;
   }
 
 let (.!()) = Dynarray.get
