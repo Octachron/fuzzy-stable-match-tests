@@ -9,13 +9,15 @@ type implem =
   | Trie
   | Trie_A
   | BK_tree of bk_variant
+  | Del_dict
   | Simple
 
-let methods = [ "trie"; "trie+a"; "bk"; "simple"; "bk+hm"; "bk+da"]
+let methods = [ "trie"; "trie+a"; "bk"; "simple"; "bk+hm"; "bk+da"; "dd"]
 let parse_implem = function
     | "trie" -> Trie
     | "trie+a" -> Trie_A
     | "bk" -> BK_tree Map
+    | "dd" -> Del_dict
     | "simple" -> Simple
     | "bk+hm" -> BK_tree Hashmap
     | "bk+da" -> BK_tree Dynarray
@@ -26,6 +28,7 @@ let to_list f ?max_elements ~cutoff left = f ?max_elements ~cutoff (Array.to_lis
 let implem = function
   | Trie -> Stable_marriage.trie_preferences ?max_elements:None
   | Trie_A -> Trie_and_automaton.preferences ?max_elements:None
+  | Del_dict -> Del_dict.preferences ?max_elements:None
   | BK_tree Map -> to_list Bk.preferences ?max_elements:None
   | BK_tree Hashmap -> to_list Bk_hm.preferences ?max_elements:None
   | BK_tree Dynarray -> to_list Bk_da.preferences ?max_elements:None
