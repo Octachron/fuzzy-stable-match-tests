@@ -3,6 +3,7 @@ open Fuzzy
 type bk_variant =
   | Hashmap
   | Dynarray
+  | Exact
   | Map
 
 type implem =
@@ -13,7 +14,7 @@ type implem =
   | Del_dict_hm
   | Simple
 
-let methods = [ "trie"; "trie+a"; "bk"; "simple"; "bk+hm"; "bk+da"; "dd"; "ddh"]
+let methods = [ "trie"; "trie+a"; "bk"; "simple"; "bk+hm"; "bk+da"; "bk+e"; "dd"; "ddh"]
 let parse_implem = function
     | "trie" -> Trie
     | "trie+a" -> Trie_A
@@ -23,6 +24,7 @@ let parse_implem = function
     | "simple" -> Simple
     | "bk+hm" -> BK_tree Hashmap
     | "bk+da" -> BK_tree Dynarray
+    | "bk+e" -> BK_tree Exact
     | _ -> BK_tree Map
 
 let to_list f ?max_elements ~cutoff left = f ?max_elements ~cutoff (Array.to_list left)
@@ -35,6 +37,7 @@ let implem = function
   | BK_tree Map -> to_list Bk.preferences ?max_elements:None
   | BK_tree Hashmap -> to_list Bk_hm.preferences ?max_elements:None
   | BK_tree Dynarray -> to_list Bk_da.preferences ?max_elements:None
+  | BK_tree Exact -> Bk_dl.preferences ?max_elements:None
   | Simple -> Simple.preferences ?max_elements:None
 
 
